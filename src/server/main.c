@@ -1,18 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include <unistd.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-
 #include <errno.h>
-#include <signal.h>
 
-#define PORT 61103
+#include <sys/unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+
+#define DEFAULT_IP INADDR_ANY
+#define DEFAULT_PORT 61103
+#define MAX_CONNECTIONS 10
+#define BUFFER_SIZE 500
 
 /*
 1. socket
@@ -21,67 +23,88 @@
 4. accept
 */
 
-void INThandler(int);
 
-int main(void)
+
+int main(int argc, char* argv[])
 {
-    struct sockaddr_in server_addr =
-    {
-        .sin_family = AF_INET,
-        .sin_addr.s_addr = htonl(INADDR_ANY),
-        .sin_port = htons(PORT)
-    };
+    size_t error;
 
-    // 1. Socket
-    int server_sock = socket(AF_INET, SOCK_STREAM, 0);
-    if(server_sock == -1)
+    if(argc > 1 && strcmp(argv[1], "-h") == 0)
+    { 
+        printf("Usage: %s -h [ip] [port]\n", argv[0]); 
+        exit(EXIT_SUCCESS); 
+    }
+
+    FILE *log;
+    log = fopen("log.txt", "a+");
+    if(log == NULL)
     {
-        printf("socket: %s\n", strerror(errno));
+        printf("Failed to open logfile: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-    int flags = fcntl(server_sock, F_GETFL);
-    fcntl(server_sock, F_SETFL, flags | O_NONBLOCK);
-
-    // 2. Bind to address and port
-    if(bind(server_sock, (struct sockaddr*) &server_addr, sizeof(server_addr)) == -1)
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if(server_socket <= 0)
     {
-        printf("bind: %s\n", strerror(errno));
+        printf("Error creating server socket: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-    if(listen(server_sock, 10) == -1)
+    struct sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    
+    if(argc > 1)
+        server_addr.sin_addr.s_addr = inet_addr(argv[1]);
+    else
+        server_addr.sin_addr.s_addr = DEFAULT_IP;
+    
+    if(argc > 2)
+        server_addr.sin_port = htons(atoi(argv[2]));
+    else
+        server_addr.sin_port = htons(DEFAULT_PORT);
+
+    error = bind(server_socket, (struct sockaddr*) &server_addr, sizeof(server_addr));
+    if(error == -1)
     {
-        printf("listen: %s\n", strerror(errno));
+        printf("Error binding socket to port: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
-    printf("Server running on %i and any address.\n", PORT);
-
-    for(;;)
+    error = listen(server_socket, MAX_CONNECTIONS);
+    if(error == -1)
     {
-        int client_sock = accept(server_sock, NULL, NULL);
+        printf("Error starting listen on socket: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
-        signal(SIGINT, INThandler);
-        if(client_sock == -1)
+    printf("Server running on %s:%i.\n", inet_ntoa(server_addr.sin_addr), ntohs(server_addr.sin_port));
+
+    while(1)
+    {
+        char request[BUFFER_SIZE];
+        // Maybe put in struct 
+        socklen_t client_len;
+        struct sockaddr client_addr;
+        //
+        int client_socket = accept(server_socket, &client_addr, &client_len);
+        if(client_socket == -1)
         {
-            //printf("No connection:%s(%i)\n", strerror(errno), errno);
-            sleep(1);
-        } else {
-            char message[100];
-            int size_message = read(client_sock, message, sizeof(message));
-            message[size_message - 1] = '\0';
-            printf("Received: %s\n", message);
-            close(client_sock);
+            printf("Error accept new client: %s\n", strerror(errno));
         }
+
+        int size = read(client_socket, request, sizeof(request));
+        memset((request + size - 1), '\0', sizeof(request)); size--; // Replace on size \n -> \0 and decrease size by 1
+
+        printf("\nReceived(%i): %s", size, request);
+        fprintf(log, "%s\n", request);
+        fflush(NULL);
+
+        close(client_socket);
     }
+
+    // Cleanup
+    fclose(log);
+    close(server_socket);
 
     return 0;
-}
-
-void INThandler(int sig)
-{
-    signal(sig, SIG_IGN);
-    
-    exit(0);
 }

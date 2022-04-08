@@ -1,23 +1,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <errno.h>
 
-#include <unistd.h>
 #include <sys/unistd.h>
 #include <sys/types.h>
-#include <netdb.h>
-
 #include <sys/socket.h>
-#include <netinet/in.h>
+
+#include <netdb.h>
 #include <arpa/inet.h>
+#include <netinet/in.h>
 
-#include <errno.h>
-#include <time.h>
-#include <unistd.h>
+// add parameter support
+// remove \n in ip
 
-#include <time.h>
-
-#define DEBUG 1
+#define DEBUG 0
 
 #define BUFFER_SIZE 1024
 
