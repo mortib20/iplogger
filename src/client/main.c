@@ -19,9 +19,10 @@
 
 #define BUFFER_SIZE 1024
 
-#define SERVER_HOST INADDR_LOOPBACK
-#define SERVER_PORT 61103
+#define SERVER_HOST "edward.martpaul.de"
+#define SERVER_PORT "61103"
 
+struct addrinfo* getServerAddress();
 char* getIPAdress();
 char* getHostname();
 time_t getTimestamp();
@@ -36,6 +37,7 @@ struct hostinformation {
 int main(void)
 {
     size_t error, request_length;
+    struct addrinfo *server = getServerAddress();
     struct hostinformation hostinfo = getHostinfo();
     char request[BUFFER_SIZE];
 
@@ -43,11 +45,11 @@ int main(void)
 
     printf("%s\n", request);
 
-    struct sockaddr_in iplog_addr = {
+    /*struct sockaddr_in iplog_addr = {
         .sin_family = AF_INET,
         .sin_addr.s_addr = inet_addr("192.168.2.106"),
         .sin_port = htons(SERVER_PORT)
-    };
+    };*/
 
     int iplog_socket = socket(AF_INET, SOCK_STREAM, 0);
     if(iplog_socket <= 0)
@@ -56,7 +58,8 @@ int main(void)
         exit(EXIT_FAILURE);
     }
 
-    error = connect(iplog_socket, (struct sockaddr*)&iplog_addr, sizeof(iplog_addr));
+    //error = connect(iplog_socket, (struct sockaddr*)&iplog_addr, sizeof(iplog_addr));
+    error = connect(iplog_socket, server->ai_addr, server->ai_addrlen);
     if(error < 0)
     {
         printf("Error connecting so iplog server: %s\n", strerror(errno));
@@ -77,6 +80,23 @@ int main(void)
     close(iplog_socket);
 
     return 0;
+}
+
+struct addrinfo* getServerAddress()
+{
+    struct addrinfo hints, *result;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_CANONNAME;
+    hints.ai_protocol = 0;
+    hints.ai_addrlen = 0;
+    hints.ai_addr = NULL;
+    hints.ai_canonname = NULL;
+    hints.ai_next = NULL;
+
+    getaddrinfo(SERVER_HOST, SERVER_PORT, &hints, &result);
+
+    return result;
 }
 
 char* getIPAdress()
