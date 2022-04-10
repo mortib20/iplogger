@@ -1,110 +1,120 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
+/* Libraries */
+#include <stdlib.h>         // Standard library definitions
+#include <stdio.h>          // Standard input/output
+#include <string.h>         // String operations
+#include <unistd.h>         // Standard symbolic constants and types
+#include <sys/socket.h>     // Socket interface
+#include <netinet/in.h>     // IP implementation
+#include <netinet/tcp.h>    // TCP implementation
+#include <arpa/inet.h>      // Conversion host <> network order
+#include <netdb.h>          // Definitions for network database operations
 
-#include <sys/unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
+/* Type definitons */
+typedef struct {
+    int socket;
+    struct sockaddr_in address;
+} IPLOG_SERV;
 
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
+/* Function prototypes */
+int server_init(IPLOG_SERV* iplogger, char* hostname, int port);
+int server_bind(IPLOG_SERV* iplogger);
+void server_accept(IPLOG_SERV* iplogger);
 
-#define DEFAULT_IP INADDR_ANY
-#define DEFAULT_PORT 61103
-#define MAX_CONNECTIONS 10
-#define BUFFER_SIZE 500
-
-/*
-1. socket
-2. bind
-3. listen
-4. accept
-*/
-
-
-
-int main(int argc, char* argv[])
+/* Main */
+int main(int argc, char *argv[])
 {
     size_t error;
+    IPLOG_SERV iplog_serv;
 
-    if(argc > 1 && strcmp(argv[1], "-h") == 0)
-    { 
-        printf("Usage: %s -h [ip] [port]\n", argv[0]); 
-        exit(EXIT_SUCCESS); 
-    }
+    /* Initialize server */
+    error = server_init(&iplog_serv, "0.0.0.0", 61103);
+    if(error != 0)
+        goto CLEANUP;
 
-    FILE *log;
-    log = fopen("log.txt", "a+");
-    if(log == NULL)
-    {
-        printf("Failed to open logfile: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if(server_socket <= 0)
-    {
-        printf("Error creating server socket: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    struct sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    
-    if(argc > 1)
-        server_addr.sin_addr.s_addr = inet_addr(argv[1]);
-    else
-        server_addr.sin_addr.s_addr = DEFAULT_IP;
-    
-    if(argc > 2)
-        server_addr.sin_port = htons(atoi(argv[2]));
-    else
-        server_addr.sin_port = htons(DEFAULT_PORT);
-
-    error = bind(server_socket, (struct sockaddr*) &server_addr, sizeof(server_addr));
-    if(error == -1)
-    {
-        printf("Error binding socket to port: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    error = listen(server_socket, MAX_CONNECTIONS);
-    if(error == -1)
-    {
-        printf("Error starting listen on socket: %s\n", strerror(errno));
-        exit(EXIT_FAILURE);
-    }
-
-    printf("Server running on %s:%i.\n", inet_ntoa(server_addr.sin_addr), ntohs(server_addr.sin_port));
+    /* Bind server to address and start listening */
+    error = server_bind(&iplog_serv);
+    if(error != 0)
+        goto CLEANUP;
 
     while(1)
     {
-        char request[BUFFER_SIZE];
-        // Maybe put in struct 
-        socklen_t client_len;
-        struct sockaddr client_addr;
-        //
-        int client_socket = accept(server_socket, &client_addr, &client_len);
-        if(client_socket == -1)
-        {
-            printf("Error accept new client: %s\n", strerror(errno));
-        }
-
-        int size = read(client_socket, request, sizeof(request));
-        memset((request + size - 1), '\0', sizeof(request)); size--; // Replace on size \n -> \0 and decrease size by 1
-
-        printf("\nReceived(%i): %s", size, request);
-        fprintf(log, "%s\n", request);
-        fflush(NULL);
-
-        close(client_socket);
+        // Accept new client and write to log
+        server_accept(&iplog_serv);
     }
-
-    // Cleanup
-    fclose(log);
-    close(server_socket);
+    
+    CLEANUP:
+    close(iplog_serv.socket);
 
     return 0;
+}
+
+/*
+    Initialize the IPLOG_SERV struct
+*/
+int server_init(IPLOG_SERV *iplogger, char *ip, int port)
+{
+    struct sockaddr_in address;
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(inet_addr(ip));
+    address.sin_port = htons(port);
+
+    iplogger->socket = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    iplogger->address = address;
+
+    if(iplogger->socket < 0)
+    {
+        printf("Error creating socket: %s\n", strerror(iplogger->socket));
+        return -1;
+    }
+
+    return 0;
+}
+
+/*
+    Bind socket to IP and start listening on port
+*/
+int server_bind(IPLOG_SERV *iplogger)
+{
+    size_t error;
+
+    error = bind(iplogger->socket, (struct sockaddr*) &iplogger->address, sizeof(iplogger->address));
+    if(error != 0)
+    {
+        printf("Error binding socket: %s\n", strerror(error));
+        return -1;
+    }
+    
+    error = listen(iplogger->socket, 10);
+    if(error != 0)
+    {
+        printf("Error listen on socket: %s\n", strerror(error));
+        return -1;
+    }
+
+    return 0;
+}
+
+/*
+    Accept new client and log to stdout and 
+*/
+void server_accept(IPLOG_SERV* iplogger)
+{
+    char message[1000];
+    size_t message_len;
+    FILE *log_file;
+
+    int client_socket = accept(iplogger->socket, NULL, NULL);
+
+    message_len = read(client_socket, message, sizeof(message));
+    message[message_len-1] = '\0'; // Remove \n in and change to \0
+    
+    printf("Received: %s\n", message);
+
+    // Write to log file
+    log_file = fopen("log.txt", "a+");
+    fprintf(log_file, "%s\n", message);
+    fflush(NULL);
+
+    fclose(log_file);
+    close(client_socket);
 }
