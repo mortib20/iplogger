@@ -34,6 +34,15 @@ struct hostinformation {
     time_t unix_time;
 };
 
+void checkError(int number)
+{
+    if(number != 0)
+    {
+        printf("Error: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
+
 int main(void)
 {
     size_t error, request_length;
@@ -60,10 +69,7 @@ int main(void)
 
     //error = connect(iplog_socket, (struct sockaddr*)&iplog_addr, sizeof(iplog_addr));
     error = connect(iplog_socket, server->ai_addr, server->ai_addrlen);
-    if(error < 0)
-    {
-        printf("Error connecting so iplog server: %s\n", strerror(errno));
-    }
+    checkError(error);
 
     error = write(iplog_socket, request, request_length);
     if(error <= 0)
@@ -94,7 +100,7 @@ struct addrinfo* getServerAddress()
     hints.ai_canonname = NULL;
     hints.ai_next = NULL;
 
-    getaddrinfo(SERVER_HOST, SERVER_PORT, &hints, &result);
+    (void)getaddrinfo(SERVER_HOST, SERVER_PORT, &hints, &result);
 
     return result;
 }
